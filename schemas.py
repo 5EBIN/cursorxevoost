@@ -16,3 +16,9 @@ class MatchReq(BaseModel):
 
 class CopilotReq(BaseModel):
     question: str
+
+
+class SearchReq(BaseModel):
+    query: str
+    district: Optional[str] = None
+    k: int = 8

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import data_loader
 import scoring
-from schemas import CopilotReq, LandReq, MatchReq
+from schemas import CopilotReq, LandReq, MatchReq, SearchReq
 
 app = FastAPI(
     title="myOS Real Estate API",
@@ -61,6 +61,22 @@ def copilot(req: CopilotReq):
     import agent  # imported lazily so the API boots without langchain configured
 
     return agent.ask(req.question)
+
+
+@app.post("/search")
+def search(req: SearchReq):
+    """Semantic (RAG) search over textual amenity data — meaning, not exact fields."""
+    import rag  # imported lazily so the API boots without chromadb loaded
+
+    return rag.search(req.query, k=req.k, district=req.district)
+
+
+@app.post("/admin/reindex")
+def reindex(force: bool = True):
+    """(Re)build the vector index. Run once after first deploy; persisted afterwards."""
+    import rag
+
+    return rag.build_index(force=force)
 
 
 @app.get("/listings")
