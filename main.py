@@ -17,7 +17,16 @@ import auth
 import config
 import data_loader
 import scoring
-from schemas import CopilotReq, LandReq, MatchReq, QueryReq, ReportReq, SearchReq
+from schemas import (
+    CopilotReq,
+    DocumentsReq,
+    LandReq,
+    MatchReq,
+    ProvisionReq,
+    QueryReq,
+    ReportReq,
+    SearchReq,
+)
 
 app = FastAPI(
     title="myOS Real Estate API",
@@ -130,6 +139,40 @@ def report_pdf(req: ReportReq):
 
 
 # --- KB adapter: External Real Estate KB contract (KB-ADAPTER.md, Bearer) -----
+
+@app.post("/v1/agents", dependencies=[Depends(auth.require_bearer)])
+def kb_provision(req: ProvisionReq):
+    """Provision an agent/collection.
+
+    We serve one shared Abu Dhabi market collection, so provisioning is idempotent:
+    it always resolves to MARKET_COLLECTION_ID and is immediately ready (chunks are
+    generated live per query — no per-agent corpus to build).
+    """
+    return {
+        "collection_id": config.MARKET_COLLECTION_ID,
+        "name": req.name or "Abu Dhabi Market KB",
+        "status": "ready",
+        "provider": "external_api",
+    }
+
+
+@app.post("/v1/agents/{collection_id}/documents", dependencies=[Depends(auth.require_bearer)])
+def kb_import_documents(collection_id: str, req: DocumentsReq):
+    """Import proxy.
+
+    Chunks are generated live from the datasets, so there is no stored corpus to
+    import into. We accept the request and no-op (documents counted as skipped) so
+    the contract caller does not break.
+    """
+    return {
+        "collection_id": collection_id,
+        "received": len(req.documents),
+        "imported": 0,
+        "skipped": len(req.documents),
+        "status": "accepted",
+        "note": "chunks are generated per query from live datasets; no document storage in v1",
+    }
+
 
 @app.post("/v1/agents/{collection_id}/query", dependencies=[Depends(auth.require_bearer)])
 def kb_query(collection_id: str, req: QueryReq):
