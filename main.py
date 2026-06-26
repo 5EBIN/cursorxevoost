@@ -7,12 +7,15 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import FastAPI, Query
+from fastapi import Depends, FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
+import auth
+import config
 import data_loader
 import scoring
-from schemas import CopilotReq, LandReq, MatchReq, SearchReq
+from schemas import CopilotReq, LandReq, MatchReq, QueryReq, ReportReq, SearchReq
 
 app = FastAPI(
     title="myOS Real Estate API",
@@ -31,7 +34,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "rows_loaded": data_loader.row_counts()}
+    return {"status": "ok", "version": config.VERSION, "rows_loaded": data_loader.row_counts()}
 
 
 @app.get("/districts")
@@ -107,3 +110,56 @@ def listings(
         for _, r in df.head(200).iterrows()
     ]
     return {"count": len(records), "listings": records}
+
+
+# --- Secondary server: PDF reports (SERVER.md, X-API-Key) --------------------
+
+@app.post("/report/pdf", dependencies=[Depends(auth.require_api_key)])
+def report_pdf(req: ReportReq):
+    """Generate a PDF report (district | land | investment). Server-to-server only."""
+    from reports.pdf import build_report
+
+    pdf = build_report(req.report_type, req.params)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{req.report_type}_report.pdf"'},
+    )
+
+
+# --- KB adapter: External Real Estate KB contract (KB-ADAPTER.md, Bearer) -----
+
+@app.post("/v1/agents/{collection_id}/query", dependencies=[Depends(auth.require_bearer)])
+def kb_query(collection_id: str, req: QueryReq):
+    """Contract-conformant query. Backed by the fast deterministic pipeline + RAG.
+
+    Fails open: any internal error returns 200 with chunks: [] so ProfSidekick keeps
+    its existing knowledge instead of seeing a 5xx.
+    """
+    # Isolation: only the one shared market collection is known. Never 404.
+    if collection_id != config.MARKET_COLLECTION_ID:
+        return {"collection_id": collection_id, "query": req.query, "chunks": []}
+
+    try:
+        import pipeline
+
+        top_k = min(req.top_k, 5)
+        results = pipeline.run(req.query, top_k=top_k)
+        chunks = pipeline.to_chunks(results, max_chunks=top_k)
+    except Exception:
+        chunks = []
+
+    return {"collection_id": collection_id, "query": req.query, "chunks": chunks}
+
+
+@app.post("/v1/agents/{collection_id}/report/pdf", dependencies=[Depends(auth.require_bearer)])
+def kb_report_pdf(collection_id: str, req: ReportReq):
+    """PDF extension (off-contract): separate tool path, returns bytes not chunks."""
+    from reports.pdf import build_report
+
+    pdf = build_report(req.report_type, req.params)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{req.report_type}_report.pdf"'},
+    )

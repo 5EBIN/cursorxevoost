@@ -7,3 +7,4 @@ langchain
 langchain-openai
 langchain-community
 chromadb
+reportlab

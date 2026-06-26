@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LandReq(BaseModel):
@@ -22,3 +22,14 @@ class SearchReq(BaseModel):
     query: str
     district: Optional[str] = None
     k: int = 8
+
+
+class ReportReq(BaseModel):
+    report_type: str  # district | land | investment
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
+class QueryReq(BaseModel):
+    query: str = Field(..., min_length=1, max_length=2000)
+    top_k: int = 5  # capped at 5 (ProfSidekick injects max 5)
+    min_score: float = 0.0  # advisory only — our scores aren't all cosine (KB-ADAPTER C3)
