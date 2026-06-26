@@ -1,11 +1,11 @@
 """LangChain tool-calling agent behind /copilot.
 
 The agent decides which dataset tools to call to answer a free-text question.
-``return_intermediate_steps=True`` exposes which datasets it read (great demo
-signal). The deterministic maths lives in scoring.py — the LLM only routes and
-explains.
+Inspecting the message trace exposes which datasets it read (great demo signal).
+The deterministic maths lives in scoring.py — the LLM only routes and explains.
 
-The LLM is served via OpenRouter (OpenAI-compatible API). Configure with:
+Built on the langchain 1.x agent API (``create_agent``, a compiled LangGraph
+agent). The LLM is served via OpenRouter (OpenAI-compatible API). Configure with:
   OPENROUTER_API_KEY   (required to enable /copilot)
   OPENROUTER_MODEL     (default: anthropic/claude-sonnet-4.5)
   OPENROUTER_BASE_URL  (default: https://openrouter.ai/api/v1)
@@ -29,10 +29,9 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 @lru_cache(maxsize=1)
-def _get_executor():
-    """Build the agent executor lazily so the API can boot without a key set."""
-    from langchain.agents import AgentExecutor, create_tool_calling_agent
-    from langchain_core.prompts import ChatPromptTemplate
+def _get_agent():
+    """Build the agent lazily so the API can boot without a key set."""
+    from langchain.agents import create_agent
     from langchain_openai import ChatOpenAI
 
     llm = ChatOpenAI(
@@ -43,21 +42,10 @@ def _get_executor():
         base_url=os.getenv("OPENROUTER_BASE_URL", DEFAULT_BASE_URL),
     )
 
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", SYSTEM_PROMPT + "\n\nCOLUMN REFERENCE:\n" + COLUMN_DOCS),
-            ("human", "{input}"),
-            ("placeholder", "{agent_scratchpad}"),
-        ]
-    )
-
-    agent = create_tool_calling_agent(llm, ALL_TOOLS, prompt)
-    return AgentExecutor(
-        agent=agent,
-        tools=ALL_TOOLS,
-        return_intermediate_steps=True,
-        max_iterations=6,
-        verbose=False,
+    return create_agent(
+        llm,
+        ALL_TOOLS,
+        system_prompt=SYSTEM_PROMPT + "\n\nCOLUMN REFERENCE:\n" + COLUMN_DOCS,
     )
 
 
@@ -70,10 +58,19 @@ def ask(question: str) -> Dict[str, Any]:
             "evidence": [],
         }
 
-    executor = _get_executor()
-    result = executor.invoke({"input": question})
-    return {
-        "answer": result["output"],
-        "tools_used": [step[0].tool for step in result.get("intermediate_steps", [])],
-        "evidence": [step[1] for step in result.get("intermediate_steps", [])],
-    }
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    agent = _get_agent()
+    result = agent.invoke({"messages": [{"role": "user", "content": question}]})
+    messages = result.get("messages", [])
+
+    tools_used = [m.name for m in messages if isinstance(m, ToolMessage)]
+    evidence = [m.content for m in messages if isinstance(m, ToolMessage)]
+
+    answer = ""
+    for m in reversed(messages):
+        if isinstance(m, AIMessage) and isinstance(m.content, str) and m.content.strip():
+            answer = m.content
+            break
+
+    return {"answer": answer, "tools_used": tools_used, "evidence": evidence}
