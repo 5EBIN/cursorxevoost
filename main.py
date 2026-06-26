@@ -1,10 +1,12 @@
 """FastAPI app exposing the Land, Investment and Decision agents as JSON.
 
-Run: uvicorn main:app --reload --port 8000  (then open /docs)
+Local:   uvicorn main:app --reload --port 8000   (then open /docs)
+Railway: binds to 0.0.0.0:$PORT (see __main__ + railway.json / Procfile).
 """
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Query
@@ -163,3 +165,11 @@ def kb_report_pdf(collection_id: str, req: ReportReq):
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{req.report_type}_report.pdf"'},
     )
+
+
+if __name__ == "__main__":
+    # Railway (and any PaaS) injects the port to bind on via $PORT.
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
