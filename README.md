@@ -16,6 +16,8 @@ datasets + one real OpenStreetMap dataset into a clean JSON + PDF intelligence A
 
 ## Quick start
 
+Requires Python 3.11 (see `.python-version`).
+
 ```bash
 cd backend
 python -m venv .venv
